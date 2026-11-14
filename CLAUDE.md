@@ -2,8 +2,8 @@
 
 A Rust desktop app with an **egui** GUI. It lets a user export **their own**
 Spotify playlists (owned or collaborative) to CSV/JSON, or recreate them as
-**private** YouTube playlists. The same binary also has a small CLI for
-scripting. Personal, non-commercial use only. It moves playlist *metadata*
+**private** YouTube playlists. GUI only: there is no command-line interface.
+Personal, non-commercial use only. It moves playlist *metadata*
 only; it never touches audio.
 
 The project must comply with:
@@ -20,8 +20,6 @@ compliance-related; they change.
 ---
 
 ## Compliance rules (non-negotiable)
-
-These apply equally to the GUI and the CLI.
 
 ### Spotify access
 - Use only the official Spotify Web API (`https://api.spotify.com/v1`). No
@@ -40,10 +38,10 @@ These apply equally to the GUI and the CLI.
 - Since March 2026 the API returns `items` only for these playlists anyway.
   Followed playlists still appear in the playlist list, marked **Not
   exportable**. Their Export and YouTube actions are disabled, with a tooltip
-  explaining why. The CLI refuses them with a clear message.
-- No way to process a playlist by arbitrary URL/ID that bypasses the ownership
-  check: no "paste any playlist URL" box in the GUI. The CLI may accept the
-  user's own playlist by ID/URL/name, and the ownership check always runs.
+  explaining why. Core functions also re-check ownership and return an error,
+  so the UI can't bypass it.
+- No way to process a playlist by arbitrary URL/ID: no "paste any playlist
+  URL" box. Users pick only from their own loaded playlist list.
 
 ### Content
 - **No audio**: no downloading, stream ripping, yt-dlp/youtube-dl, ffmpeg,
@@ -77,8 +75,7 @@ These apply equally to the GUI and the CLI.
 - OAuth tokens live **only** in the OS keyring (`keyring` crate), service name
   `playlist-porter`, entries `spotify` and `google`. Never write tokens to
   disk, logs, env files, the config file or error messages.
-- **Sign out / Disconnect** (GUI Settings and the `logout` CLI command), run
-  immediately:
+- **Sign out / Disconnect** (Settings screen), run immediately:
   - delete both keyring entries
   - revoke the Google token programmatically (`POST
     https://oauth2.googleapis.com/revoke`), as YouTube policy III.D.2.c
@@ -131,8 +128,8 @@ These apply equally to the GUI and the CLI.
   (needed to create playlists and insert items).
 - Before creating anything, show a **confirmation modal** with the playlist
   name, track count, estimated quota/days needed, and a clear note that a
-  **private** YouTube playlist will be created on the user's account. In the
-  CLI this is a prompt; `--yes` skips it.
+  **private** YouTube playlist will be created on the user's account. It can't
+  be skipped.
 - Before the first Google sign-in, and on the About/Privacy screen, the GUI
   must:
   - link YouTube's ToS (https://www.youtube.com/t/terms) and the Google
@@ -142,7 +139,7 @@ These apply equally to the GUI and the CLI.
   - link https://security.google.com/settings/security/permissions for
     revoking access
   
-  The same text goes in the CLI `--help` and the README.
+  The same text goes in the README.
 
 ---
 
@@ -227,10 +224,8 @@ Don't add `rspotify` without discussing it first.
   ID + status). Don't store Spotify track metadata. On resume, re-fetch the
   playlist from Spotify. Delete the file when the run finishes, on sign-out,
   and automatically when it is older than 7 days (well under YouTube's 30-day
-  limit).
-  - GUI: a playlist with saved state shows a **Resume transfer** button
-    beside **Start over**.
-  - CLI: `to-youtube <playlist> --resume`.
+  limit). A playlist with saved state shows a **Resume transfer** button
+  beside **Start over**.
 - The user can **Cancel** a running transfer. Cancelling stops after the
   current API call and saves resume state.
 
@@ -253,10 +248,9 @@ can be unit-tested. Never put them in UI code.
   - **Uncertain**: added, but below the high threshold or outside ±5 s
   - **Not found**: nothing usable; not added
 - The report lists every track with its status, YouTube link (if any) and
-  Spotify link, plus counts per status. No other statistics.
-  - GUI: a filterable table (All / Matched / Uncertain / Not found), with a
-    "Save report…" button that writes CSV/JSON with attribution.
-  - CLI: printed to stdout.
+  Spotify link, plus counts per status. No other statistics. It's shown as a
+  filterable table (All / Matched / Uncertain / Not found), with a
+  "Save report…" button that writes CSV/JSON with attribution.
 
 ---
 
@@ -309,7 +303,7 @@ can be unit-tested. Never put them in UI code.
   and call `ctx.request_repaint()`. `update()` drains events each frame with
   `try_recv`.
 - UI state is a plain struct with no business logic. Keep everything in
-  `src/core/` usable without egui, so the CLI and tests reuse it.
+  `src/core/` free of egui, so it can be unit-tested without a GUI.
 - Long operations report progress events and support cancellation via
   `tokio_util::sync::CancellationToken` (or an `AtomicBool`).
 - Errors become user-facing messages in an error panel/toast with an
@@ -323,19 +317,8 @@ can be unit-tested. Never put them in UI code.
   layouts readable at 800×600 minimum, and don't rely on colour alone for
   status (use text + icon).
 
-### CLI (same binary)
-- Running `playlist-porter` with no subcommand launches the GUI. Subcommands
-  are thin wrappers over `src/core/`:
-  - `login`
-  - `list`
-  - `export <playlist> --format csv|json [-o FILE] [--force]`
-  - `to-youtube <playlist> [--resume] [--yes]`
-  - `logout`
-- `<playlist>` accepts a playlist ID, a `https://open.spotify.com/playlist/…`
-  URL, a `spotify:playlist:…` URI, or an exact name from `list`. Ownership is
-  checked every time.
-- The disclaimer appears in `--help` (clap `after_help` on the top-level
-  command).
+- **No CLI.** Don't add subcommands, argument parsing or `clap`. Running the
+  binary opens the window.
 
 ---
 
@@ -346,9 +329,8 @@ can be unit-tested. Never put them in UI code.
   - core: `tokio`, `tokio-util`, `reqwest` (rustls), `serde`, `serde_json`,
     `csv`, `oauth2`, `keyring`, `thiserror` (in core), `anyhow` (in
     `main`/UI)
-  - CLI: `clap` (derive)
-  - small helpers: `dirs`, `toml`, `open` (launch browser from the CLI),
-    `url`
+  - small helpers: `dirs`, `toml`, `open` (launch the browser for OAuth from
+    core), `url`
   
   Ask before adding anything else.
 - Pin `egui`, `eframe` and `egui_extras` to the **same version**. egui has
@@ -368,8 +350,7 @@ can be unit-tested. Never put them in UI code.
   in `.gitignore`. Ship a `config.example.toml` with placeholders.
 - Suggested layout:
   ```
-  src/main.rs            # parse args: no subcommand → GUI, else CLI
-  src/cli.rs             # clap definitions + handlers
+  src/main.rs            # build tokio runtime, launch eframe
   src/gui/               # app.rs (eframe::App), screens/*.rs, widgets.rs, worker.rs (Command/Event bridge)
   src/core/config.rs
   src/core/auth/         # spotify.rs, google.rs, keyring.rs, loopback.rs
@@ -405,8 +386,7 @@ can be unit-tested. Never put them in UI code.
      client.
    - Entering the IDs on the Setup screen, or using config/env vars.
    - Linux keyring requirement.
-2. Usage: GUI walkthrough (with screenshots once they exist) and CLI examples
-   for every subcommand.
+2. Usage: GUI walkthrough (with screenshots once they exist).
 3. Limitations:
    - own/collaborative playlists only
    - 5-user Dev Mode cap and the Premium requirement
@@ -414,11 +394,11 @@ can be unit-tested. Never put them in UI code.
    - imperfect matching
    - local files and episodes are skipped
 4. Privacy: what's stored (keyring tokens, config with client IDs, temporary
-   resume file), how to delete it (Sign out / `logout`), the revoke links,
+   resume file), how to delete it (Settings → Sign out), the revoke links,
    YouTube ToS and Google Privacy Policy links.
 5. The disclaimer.
 
-## Disclaimer (verbatim, in README, About screen and CLI `--help`)
+## Disclaimer (verbatim, in README and the About screen)
 
 > playlist-porter is an independent project. It is not affiliated with,
 > endorsed by, or sponsored by Spotify or Google/YouTube. Track metadata is
