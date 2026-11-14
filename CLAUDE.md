@@ -310,7 +310,7 @@ top-level command) and in the README.
 
 ## Git workflow
 
-- Remote: `origin` → https://github.com/cybergatovgm/playlist-porter
+- Remote: `origin` → https://github.com/Sudo-DNF/playlist-porter (private)
 - Default branch: `main`
 - **After every commit, always push to the remote immediately:**
 
