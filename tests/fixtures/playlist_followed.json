@@ -1,0 +1,6 @@
+{
+  "id": "3FollowedPlaylistIdAB", "name": "Followed: no items field",
+  "collaborative": false,
+  "owner": {"id": "user_c", "display_name": "Carla"},
+  "external_urls": {"spotify": "https://open.spotify.com/playlist/3FollowedPlaylistIdAB"}
+}

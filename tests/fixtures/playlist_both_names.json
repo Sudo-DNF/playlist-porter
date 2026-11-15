@@ -1,0 +1,8 @@
+{
+  "id": "1AbCdEfGhIjKlMnOpQrStU", "name": "Owned, new field names",
+  "collaborative": false, "description": "",
+  "owner": {"id": "user_a", "display_name": "Alex Example"},
+  "external_urls": {"spotify": "https://open.spotify.com/playlist/1AbCdEfGhIjKlMnOpQrStU"},
+  "items": {"href": "x", "total": 12, "items": [], "next": null},
+  "tracks": {"href": "x", "total": 999, "items": [], "next": null}
+}

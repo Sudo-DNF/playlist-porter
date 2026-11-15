@@ -1,0 +1,13 @@
+{
+  "href": "https://api.spotify.com/v1/me/playlists?offset=50&limit=50",
+  "limit": 50, "offset": 50, "total": 4, "next": null, "previous": null,
+  "items": [
+    {
+      "id": "4OldShapePlaylistId99", "name": "Owned, old field name only",
+      "collaborative": false,
+      "owner": {"id": "user_a", "display_name": "Alex Example"},
+      "external_urls": {"spotify": "https://open.spotify.com/playlist/4OldShapePlaylistId99"},
+      "tracks": {"href": "https://api.spotify.com/v1/playlists/4OldShapePlaylistId99/tracks", "total": 0}
+    }
+  ]
+}

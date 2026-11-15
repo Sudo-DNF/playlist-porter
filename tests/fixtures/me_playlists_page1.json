@@ -1,0 +1,28 @@
+{
+  "href": "https://api.spotify.com/v1/me/playlists?offset=0&limit=50",
+  "limit": 50, "offset": 0, "total": 4,
+  "next": "https://api.spotify.com/v1/me/playlists?offset=50&limit=50",
+  "previous": null,
+  "items": [
+    {
+      "id": "1AbCdEfGhIjKlMnOpQrStU", "name": "Owned, new field names",
+      "collaborative": false, "public": false,
+      "owner": {"id": "user_a", "display_name": "Alex Example"},
+      "external_urls": {"spotify": "https://open.spotify.com/playlist/1AbCdEfGhIjKlMnOpQrStU"},
+      "items": {"href": "https://api.spotify.com/v1/playlists/1AbCdEfGhIjKlMnOpQrStU/items", "total": 12}
+    },
+    {
+      "id": "2CollabPlaylistIdXYZ12", "name": "Collaborative, someone else owns it",
+      "collaborative": true,
+      "owner": {"id": "user_b", "display_name": "Bea"},
+      "external_urls": {"spotify": "https://open.spotify.com/playlist/2CollabPlaylistIdXYZ12"},
+      "items": {"href": "https://api.spotify.com/v1/playlists/2CollabPlaylistIdXYZ12/items", "total": 63}
+    },
+    {
+      "id": "3FollowedPlaylistIdAB", "name": "Followed: no items field",
+      "collaborative": false,
+      "owner": {"id": "user_c", "display_name": null},
+      "external_urls": {"spotify": "https://open.spotify.com/playlist/3FollowedPlaylistIdAB"}
+    }
+  ]
+}

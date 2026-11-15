@@ -1,0 +1,69 @@
+{
+  "href": "https://api.spotify.com/v1/playlists/1AbCdEfGhIjKlMnOpQrStU/items?offset=0&limit=50",
+  "limit": 50, "offset": 0, "total": 7, "next": null,
+  "items": [
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": false,
+      "item": {
+        "type": "track", "id": "trackNew000000000000001", "name": "Dreams - 2004 Remaster",
+        "artists": [{"id": "a1", "name": "Fleetwood Mac"}],
+        "album": {"id": "al1", "name": "Rumours"},
+        "duration_ms": 257800, "is_local": false,
+        "external_ids": {"isrc": "USWB10400045"},
+        "external_urls": {"spotify": "https://open.spotify.com/track/trackNew000000000000001"}
+      }
+    },
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": false,
+      "track": {
+        "type": "track", "id": "trackOld000000000000002", "name": "Old Field Name",
+        "artists": [{"id": "a2", "name": "Artist Two"}, {"id": "a3", "name": "Guest"}],
+        "album": {"id": "al2", "name": "Album Two"},
+        "duration_ms": 200000, "is_local": false,
+        "external_ids": {},
+        "external_urls": {"spotify": "https://open.spotify.com/track/trackOld000000000000002"}
+      }
+    },
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": false,
+      "item": {
+        "type": "track", "id": "trackBoth00000000000003", "name": "Both Names (new wins)",
+        "artists": [{"id": "a4", "name": "New"}], "album": {"name": "A"},
+        "duration_ms": 1000,
+        "external_urls": {"spotify": "https://open.spotify.com/track/trackBoth00000000000003"}
+      },
+      "track": {
+        "type": "track", "id": "trackBothOLD000000000003", "name": "Both Names (old)",
+        "artists": [{"id": "a4", "name": "Old"}], "album": {"name": "A"},
+        "duration_ms": 1000,
+        "external_urls": {"spotify": "https://open.spotify.com/track/trackBothOLD000000000003"}
+      }
+    },
+    {"added_at": "2026-04-01T10:00:00Z", "is_local": false, "item": null},
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": false,
+      "item": {
+        "type": "episode", "id": "ep1", "name": "A Podcast Episode", "duration_ms": 3600000,
+        "external_urls": {"spotify": "https://open.spotify.com/episode/ep1"}
+      }
+    },
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": true,
+      "item": {
+        "type": "track", "id": null, "name": "roadtrip_mix_final.mp3",
+        "artists": [{"id": null, "name": ""}], "album": {"name": ""},
+        "duration_ms": 302000, "is_local": true, "uri": "spotify:local:::roadtrip_mix_final.mp3:302",
+        "external_ids": {}, "external_urls": {}
+      }
+    },
+    {
+      "added_at": "2026-04-01T10:00:00Z", "is_local": false,
+      "item": {
+        "type": "track", "id": "trackNoIsrc000000000007", "name": "Holocene",
+        "artists": [{"id": "a7", "name": "Bon Iver"}], "album": {"name": "Bon Iver, Bon Iver"},
+        "duration_ms": 336000,
+        "external_urls": {"spotify": "https://open.spotify.com/track/trackNoIsrc000000000007"}
+      }
+    }
+  ]
+}
