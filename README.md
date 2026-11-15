@@ -20,7 +20,8 @@ Personal, non-commercial use only. GUI only: running the binary opens the window
 > material.
 
 Contents: [Setup](#setup) · [Usage](#usage) · [Limitations](#limitations) ·
-[Privacy](#privacy) · [Development](#development) · [Disclaimer](#disclaimer)
+[Privacy](#privacy) · [Development](#development) · [License](#license) ·
+[Disclaimer](#disclaimer)
 
 ---
 
@@ -37,7 +38,22 @@ You need a recent stable Rust toolchain (1.95 or newer).
 cargo build --release
 ```
 
-The binary is `target/release/playlist-porter`.
+The binary is `target/release/playlist-porter`. To install it into
+`~/.cargo/bin` instead:
+
+```bash
+cargo install --path . --locked
+```
+
+On Linux, add a launcher entry and icon (the desktop file points at the
+installed binary):
+
+```bash
+install -Dm644 assets/playlist-porter.svg ~/.local/share/icons/hicolor/scalable/apps/playlist-porter.svg
+sed "s|^Exec=playlist-porter|Exec=$HOME/.cargo/bin/playlist-porter|" assets/playlist-porter.desktop > ~/.local/share/applications/playlist-porter.desktop
+```
+
+To uninstall, run `cargo uninstall playlist-porter` and delete those two files.
 
 On Linux you also need:
 
@@ -307,6 +323,17 @@ to `target/screens/`. The original UI mockups are in `docs/mockups/`.
 
 Project rules (API usage, compliance, architecture) are in
 [`CLAUDE.md`](CLAUDE.md).
+
+---
+
+## License
+
+playlist-porter is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See [`LICENSE`](LICENSE) for the full text.
 
 ---
 

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=playlist-porter
+GenericName=Playlist Exporter
+Comment=Export your own playlists to CSV/JSON or recreate them as private YouTube playlists
+Exec=playlist-porter
+Icon=playlist-porter
+Terminal=false
+Categories=Utility;
+Keywords=playlist;export;csv;json;youtube;
+StartupWMClass=playlist-porter
