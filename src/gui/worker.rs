@@ -5,25 +5,69 @@
 //! over a std channel, calling `ctx.request_repaint()` after each one. The UI
 //! drains events with `try_recv` once per frame and never blocks.
 
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use tokio::runtime::Handle;
-use tokio::sync::mpsc as tmpsc;
+use tokio::sync::{mpsc as tmpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 
-use crate::core::config::{self, Config};
-use crate::core::error::CoreError;
+use super::state::{PlaylistRow, Service};
+use crate::core::auth::keyring::{self, Account};
+use crate::core::auth::session::Session;
+use crate::core::auth::{loopback, spotify as spotify_auth, StoredToken};
+use crate::core::config::{self, Config, EnvOverrides};
+use crate::core::error::{CoreError, CoreResult};
+use crate::core::spotify::client::{is_exportable, SpotifyClient};
+use crate::core::spotify::models::{Entry, Playlist, User};
 
 /// Requests from the UI.
 #[derive(Debug)]
 pub enum Command {
-    /// Persist app credentials and UI prefs to `config.toml`.
+    /// Load config, check the keyring, restore sessions.
+    Startup,
+    /// Write `config.toml` (file values only) and reload the merged config.
     SaveConfig(Box<Config>),
+    SignIn(Service),
+    CancelSignIn(Service),
+    LoadPlaylists,
+    OpenDetail(String),
+    OpenFolder(std::path::PathBuf),
 }
 
 /// Results and progress from the worker.
 #[derive(Debug)]
 pub enum Event {
+    ConfigLoaded {
+        merged: Box<Config>,
+        file: Box<Config>,
+        env: EnvOverrides,
+    },
     ConfigSaved,
+    /// No stored session for this service (or it was removed).
+    SignedOut(Service, Option<CoreError>),
+    SignInWaiting {
+        service: Service,
+        auth_url: String,
+        port: u16,
+    },
+    SignInFinishing(Service),
+    SignedIn {
+        service: Service,
+        name: String,
+        id: String,
+    },
+    SignInFailed(Service, CoreError),
+    KeyringUnavailable(CoreError),
+    PlaylistsLoading,
+    PlaylistsLoaded(Vec<PlaylistRow>),
+    PlaylistsFailed(CoreError),
+    DetailLoaded {
+        row: PlaylistRow,
+        entries: Vec<Entry>,
+    },
+    DetailFailed(String, CoreError),
+    /// Spotify asked us to wait; 0 means the wait is over.
+    RateLimited(u64),
     Error(CoreError),
 }
 
@@ -53,14 +97,49 @@ impl WorkerHandle {
     }
 }
 
+/// Everything the worker keeps between commands. In memory only.
+#[derive(Default)]
+struct WorkerState {
+    cfg: Config,
+    spotify: Option<Arc<SpotifyClient>>,
+    me: Option<User>,
+    spotify_signin: Option<CancellationToken>,
+    google_signin: Option<CancellationToken>,
+}
+
+#[derive(Clone)]
+struct Worker {
+    sink: Sink,
+    http: reqwest::Client,
+    st: Arc<Mutex<WorkerState>>,
+}
+
+/// One HTTP client for all API calls. Redirects are off so a request can
+/// never be bounced to a host outside the allowed list.
+fn api_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(concat!("playlist-porter/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .unwrap_or_default()
+}
+
 /// Start the worker loop on the app-owned runtime.
 pub fn spawn(rt: &Handle, ctx: egui::Context) -> WorkerHandle {
     let (cmd_tx, mut cmd_rx) = tmpsc::unbounded_channel::<Command>();
     let (ev_tx, ev_rx) = mpsc::channel();
-    let sink = Sink { tx: ev_tx, ctx };
+    let w = Worker {
+        sink: Sink { tx: ev_tx, ctx },
+        http: api_http_client(),
+        st: Arc::new(Mutex::new(WorkerState::default())),
+    };
     rt.spawn(async move {
         while let Some(cmd) = cmd_rx.recv().await {
-            handle(cmd, &sink).await;
+            // Each command runs in its own task so a slow one never holds up
+            // cancellation or other requests.
+            let w = w.clone();
+            tokio::spawn(async move { w.handle(cmd).await });
         }
     });
     WorkerHandle {
@@ -69,14 +148,276 @@ pub fn spawn(rt: &Handle, ctx: egui::Context) -> WorkerHandle {
     }
 }
 
-async fn handle(cmd: Command, sink: &Sink) {
-    match cmd {
-        Command::SaveConfig(cfg) => {
-            let res = tokio::task::spawn_blocking(move || config::save(&cfg)).await;
-            match res {
-                Ok(Ok(())) => sink.send(Event::ConfigSaved),
-                Ok(Err(e)) => sink.send(Event::Error(e)),
-                Err(e) => sink.send(Event::Error(CoreError::Io(e.to_string()))),
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> CoreResult<T> + Send + 'static,
+) -> CoreResult<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| CoreError::Io(e.to_string()))?
+}
+
+pub fn playlist_row(p: &Playlist, me_id: &str) -> PlaylistRow {
+    PlaylistRow {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        owner_name: p.owner.name().to_string(),
+        owner_is_me: p.owner.id == me_id,
+        collaborative: p.collaborative,
+        total: p.total(),
+        spotify_url: p.spotify_url(),
+        exportable: is_exportable(&p.owner.id, p.collaborative, me_id),
+    }
+}
+
+impl Worker {
+    async fn handle(&self, cmd: Command) {
+        match cmd {
+            Command::Startup => self.startup().await,
+            Command::SaveConfig(cfg) => self.save_config(*cfg).await,
+            Command::SignIn(Service::Spotify) => self.spotify_sign_in().await,
+            Command::SignIn(Service::YouTube) => {}
+            Command::CancelSignIn(s) => {
+                let mut st = self.st.lock().await;
+                let tok = match s {
+                    Service::Spotify => st.spotify_signin.take(),
+                    Service::YouTube => st.google_signin.take(),
+                };
+                if let Some(t) = tok {
+                    t.cancel();
+                }
+            }
+            Command::LoadPlaylists => self.load_playlists().await,
+            Command::OpenDetail(id) => self.open_detail(id).await,
+            Command::OpenFolder(path) => {
+                let _ = blocking(move || {
+                    open::that_detached(&path).map_err(|e| CoreError::Io(e.to_string()))
+                })
+                .await;
+            }
+        }
+    }
+
+    async fn load_config(&self) -> CoreResult<Config> {
+        let (merged, file, env) = blocking(config::load).await?;
+        self.st.lock().await.cfg = merged.clone();
+        self.sink.send(Event::ConfigLoaded {
+            merged: Box::new(merged.clone()),
+            file: Box::new(file),
+            env,
+        });
+        Ok(merged)
+    }
+
+    async fn startup(&self) {
+        let cfg = match self.load_config().await {
+            Ok(c) => c,
+            Err(e) => {
+                self.sink.send(Event::Error(e));
+                return;
+            }
+        };
+        if !cfg.has_spotify() {
+            return;
+        }
+        self.restore_spotify().await;
+    }
+
+    async fn save_config(&self, file_cfg: Config) {
+        let res = blocking(move || config::save(&file_cfg)).await;
+        match res {
+            Ok(()) => {
+                self.sink.send(Event::ConfigSaved);
+                if let Ok(cfg) = self.load_config().await {
+                    let signed_in = self.st.lock().await.spotify.is_some();
+                    if cfg.has_spotify() && !signed_in {
+                        self.restore_spotify().await;
+                    }
+                }
+            }
+            Err(e) => self.sink.send(Event::Error(e)),
+        }
+    }
+
+    fn spotify_client(&self, cfg: &Config, token: StoredToken) -> Arc<SpotifyClient> {
+        let client_id = cfg.spotify_client_id.clone();
+        let token_http = crate::core::auth::token_http_client();
+        let refresher: crate::core::auth::session::RefreshFn = Box::new(move |rt| {
+            let client_id = client_id.clone();
+            let token_http = token_http.clone();
+            Box::pin(async move { spotify_auth::refresh(&token_http, &client_id, &rt).await })
+        });
+        let session = Arc::new(Session::new(Account::Spotify, token, refresher));
+        let sink = self.sink.clone();
+        Arc::new(SpotifyClient::new(
+            self.http.clone(),
+            session,
+            Arc::new(move |secs| sink.send(Event::RateLimited(secs))),
+        ))
+    }
+
+    /// Restore a stored Spotify session, if any.
+    async fn restore_spotify(&self) {
+        let token = match keyring::load(Account::Spotify).await {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                self.sink.send(Event::SignedOut(Service::Spotify, None));
+                return;
+            }
+            Err(e) => {
+                self.sink.send(Event::KeyringUnavailable(e.clone()));
+                self.sink.send(Event::SignedOut(Service::Spotify, None));
+                return;
+            }
+        };
+        let cfg = self.st.lock().await.cfg.clone();
+        let client = self.spotify_client(&cfg, token);
+        self.finish_spotify_sign_in(client, false).await;
+    }
+
+    /// Fetch the profile, publish the session and load playlists.
+    async fn finish_spotify_sign_in(&self, client: Arc<SpotifyClient>, fresh: bool) {
+        match client.me().await {
+            Ok(me) => {
+                {
+                    let mut st = self.st.lock().await;
+                    st.spotify = Some(client);
+                    st.me = Some(me.clone());
+                }
+                self.sink.send(Event::SignedIn {
+                    service: Service::Spotify,
+                    name: me.name().to_string(),
+                    id: me.id.clone(),
+                });
+                self.load_playlists().await;
+            }
+            Err(e) => {
+                // A rejected or expired session is useless: remove it.
+                if matches!(
+                    e,
+                    CoreError::SessionExpired | CoreError::SpotifyForbidden { .. }
+                ) {
+                    let _ = keyring::delete(Account::Spotify).await;
+                }
+                if fresh || !matches!(e, CoreError::SessionExpired) {
+                    self.sink.send(Event::SignInFailed(Service::Spotify, e));
+                } else {
+                    self.sink.send(Event::SignedOut(Service::Spotify, Some(e)));
+                }
+            }
+        }
+    }
+
+    async fn spotify_sign_in(&self) {
+        let cancel = CancellationToken::new();
+        let cfg = {
+            let mut st = self.st.lock().await;
+            if let Some(old) = st.spotify_signin.replace(cancel.clone()) {
+                old.cancel();
+            }
+            st.cfg.clone()
+        };
+        let res = self.spotify_sign_in_inner(&cfg, cancel).await;
+        self.st.lock().await.spotify_signin = None;
+        match res {
+            Ok(client) => self.finish_spotify_sign_in(client, true).await,
+            Err(e) => self.sink.send(Event::SignInFailed(Service::Spotify, e)),
+        }
+    }
+
+    async fn spotify_sign_in_inner(
+        &self,
+        cfg: &Config,
+        cancel: CancellationToken,
+    ) -> CoreResult<Arc<SpotifyClient>> {
+        if !cfg.has_spotify() {
+            return Err(CoreError::Config("the Spotify client ID is missing".into()));
+        }
+        // Make sure tokens can be stored before asking the user to sign in.
+        if let Err(e) = keyring::load(Account::Spotify).await {
+            self.sink.send(Event::KeyringUnavailable(e.clone()));
+            return Err(e);
+        }
+        let redirect = cfg.redirect_uri();
+        let pending = spotify_auth::begin(&cfg.spotify_client_id, &redirect)?;
+        let listener = loopback::bind(cfg.redirect_port()).await?;
+        self.sink.send(Event::SignInWaiting {
+            service: Service::Spotify,
+            auth_url: pending.auth_url.clone(),
+            port: cfg.redirect_port(),
+        });
+        // Open the system browser; if that fails the UI shows the URL to copy.
+        let url = pending.auth_url.clone();
+        let _ = tokio::task::spawn_blocking(move || open::that_detached(url)).await;
+        let code = loopback::wait_for_code(listener, pending.csrf_state, cancel).await?;
+        self.sink.send(Event::SignInFinishing(Service::Spotify));
+        let token = spotify_auth::exchange(
+            &crate::core::auth::token_http_client(),
+            &cfg.spotify_client_id,
+            &redirect,
+            code,
+            pending.verifier,
+        )
+        .await?;
+        keyring::save(Account::Spotify, token.clone()).await?;
+        Ok(self.spotify_client(cfg, token))
+    }
+
+    async fn current_spotify(&self) -> CoreResult<(Arc<SpotifyClient>, User)> {
+        let st = self.st.lock().await;
+        match (&st.spotify, &st.me) {
+            (Some(c), Some(m)) => Ok((c.clone(), m.clone())),
+            _ => Err(CoreError::SessionExpired),
+        }
+    }
+
+    /// React to an error from a Spotify call; returns it for display.
+    async fn spotify_error(&self, e: CoreError) -> CoreError {
+        if matches!(e, CoreError::SessionExpired) {
+            {
+                let mut st = self.st.lock().await;
+                st.spotify = None;
+                st.me = None;
+            }
+            let _ = keyring::delete(Account::Spotify).await;
+            self.sink
+                .send(Event::SignedOut(Service::Spotify, Some(e.clone())));
+        }
+        e
+    }
+
+    async fn load_playlists(&self) {
+        let (client, me) = match self.current_spotify().await {
+            Ok(x) => x,
+            Err(e) => {
+                self.sink.send(Event::PlaylistsFailed(e));
+                return;
+            }
+        };
+        self.sink.send(Event::PlaylistsLoading);
+        match client.my_playlists().await {
+            Ok(list) => {
+                let rows = list.iter().map(|p| playlist_row(p, &me.id)).collect();
+                self.sink.send(Event::PlaylistsLoaded(rows));
+            }
+            Err(e) => {
+                let e = self.spotify_error(e).await;
+                self.sink.send(Event::PlaylistsFailed(e));
+            }
+        }
+    }
+
+    async fn open_detail(&self, id: String) {
+        let res = async {
+            let (client, me) = self.current_spotify().await?;
+            let (p, entries) = client.load_for_processing(&id, &me.id).await?;
+            Ok::<_, CoreError>((playlist_row(&p, &me.id), entries))
+        }
+        .await;
+        match res {
+            Ok((row, entries)) => self.sink.send(Event::DetailLoaded { row, entries }),
+            Err(e) => {
+                let e = self.spotify_error(e).await;
+                self.sink.send(Event::DetailFailed(id, e));
             }
         }
     }
