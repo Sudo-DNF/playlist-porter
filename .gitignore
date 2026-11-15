@@ -1,0 +1,8 @@
+/target
+config.toml
+.env
+*.env
+# kittest scratch output; committed screenshots live in docs/screenshots/
+tests/snapshots/*.new.png
+tests/snapshots/*.diff.png
+tests/snapshots/*.old.png

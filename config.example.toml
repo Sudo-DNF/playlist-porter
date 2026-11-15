@@ -1,0 +1,18 @@
+# Copy to ~/.config/playlist-porter/config.toml, or fill in the Setup screen.
+# Environment variables override these values:
+#   PLAYLIST_PORTER_SPOTIFY_CLIENT_ID, PLAYLIST_PORTER_GOOGLE_CLIENT_ID,
+#   PLAYLIST_PORTER_GOOGLE_CLIENT_SECRET, PLAYLIST_PORTER_REDIRECT_PORT
+#
+# These are app credentials from your own developer apps, not account sign-ins.
+# Sign-in tokens are never stored here; they live only in the OS keyring.
+
+spotify_client_id = "your-spotify-client-id"
+google_client_id = "your-id.apps.googleusercontent.com"
+google_client_secret = "your-google-client-secret"
+
+# Register http://127.0.0.1:<port>/callback with Spotify and Google.
+redirect_port = 8888
+
+# UI preferences
+theme = "system"            # system | light | dark
+last_export_format = "csv"  # csv | json
