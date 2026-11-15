@@ -138,7 +138,7 @@ pub fn show(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
         (ui.available_width() - tracks_w - status_w - link_w - actions_w - 6.0 * gap).max(180.0);
     let name_w = (flex * 0.58).max(92.0);
     let owner_w = (flex - name_w).max(70.0);
-    let compact_badge = owner_w < 200.0;
+    let compact_badge = owner_w < 170.0;
     egui::ScrollArea::horizontal().show(ui, |ui| {
         TableBuilder::new(ui)
             .striped(true)

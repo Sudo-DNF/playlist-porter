@@ -2,9 +2,8 @@
 name = "playlist-porter"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.92"
+rust-version = "1.95"
 description = "Export your own playlists to CSV/JSON or recreate them as private YouTube playlists. Personal, non-commercial use."
-license = "MIT"
 publish = false
 
 [lib]
