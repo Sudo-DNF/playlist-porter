@@ -5,6 +5,7 @@
 //! over a std channel, calling `ctx.request_repaint()` after each one. The UI
 //! drains events with `try_recv` once per frame and never blocks.
 
+use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 
 use tokio::runtime::Handle;
@@ -15,10 +16,11 @@ use super::state::{PlaylistRow, Service};
 use crate::core::auth::keyring::{self, Account};
 use crate::core::auth::session::Session;
 use crate::core::auth::{loopback, spotify as spotify_auth, StoredToken};
-use crate::core::config::{self, Config, EnvOverrides};
+use crate::core::config::{self, Config, EnvOverrides, ExportFormat};
 use crate::core::error::{CoreError, CoreResult};
+use crate::core::export;
 use crate::core::spotify::client::{is_exportable, SpotifyClient};
-use crate::core::spotify::models::{Entry, Playlist, User};
+use crate::core::spotify::models::{Entry, Playlist, SkipCounts, User};
 
 /// Requests from the UI.
 #[derive(Debug)]
@@ -32,6 +34,21 @@ pub enum Command {
     LoadPlaylists,
     OpenDetail(String),
     OpenFolder(std::path::PathBuf),
+    /// Fetch a playlist's tracks for the export dialog.
+    PrepareExport(String),
+    /// Native save dialog.
+    ChooseExportPath {
+        current: String,
+        format: ExportFormat,
+    },
+    WriteExport {
+        id: String,
+        path: String,
+        format: ExportFormat,
+        overwrite: bool,
+    },
+    /// Export dialog closed: drop the fetched tracks.
+    CloseExport,
 }
 
 /// Results and progress from the worker.
@@ -66,6 +83,19 @@ pub enum Event {
         entries: Vec<Entry>,
     },
     DetailFailed(String, CoreError),
+    ExportReady {
+        id: String,
+        tracks: usize,
+        skipped: SkipCounts,
+        default_path: String,
+    },
+    ExportPathChosen(String),
+    ExportNeedsOverwrite,
+    Exported {
+        path: PathBuf,
+        tracks: usize,
+    },
+    ExportFailed(CoreError),
     /// Spotify asked us to wait; 0 means the wait is over.
     RateLimited(u64),
     Error(CoreError),
@@ -105,6 +135,8 @@ struct WorkerState {
     me: Option<User>,
     spotify_signin: Option<CancellationToken>,
     google_signin: Option<CancellationToken>,
+    /// Tracks fetched for the open export dialog. Dropped when it closes.
+    export_data: Option<(Playlist, Vec<Entry>)>,
 }
 
 #[derive(Clone)]
@@ -188,6 +220,17 @@ impl Worker {
             }
             Command::LoadPlaylists => self.load_playlists().await,
             Command::OpenDetail(id) => self.open_detail(id).await,
+            Command::PrepareExport(id) => self.prepare_export(id).await,
+            Command::ChooseExportPath { current, format } => {
+                self.choose_export_path(current, format).await
+            }
+            Command::WriteExport {
+                id,
+                path,
+                format,
+                overwrite,
+            } => self.write_export(id, path, format, overwrite).await,
+            Command::CloseExport => self.st.lock().await.export_data = None,
             Command::OpenFolder(path) => {
                 let _ = blocking(move || {
                     open::that_detached(&path).map_err(|e| CoreError::Io(e.to_string()))
@@ -419,6 +462,123 @@ impl Worker {
                 let e = self.spotify_error(e).await;
                 self.sink.send(Event::DetailFailed(id, e));
             }
+        }
+    }
+
+    async fn prepare_export(&self, id: String) {
+        let res = async {
+            let (client, me) = self.current_spotify().await?;
+            client.load_for_processing(&id, &me.id).await
+        }
+        .await;
+        match res {
+            Ok((p, entries)) => {
+                let tracks = entries.iter().filter(|e| e.track().is_some()).count();
+                let skipped = SkipCounts::of(&entries);
+                let cfg = {
+                    let mut st = self.st.lock().await;
+                    st.export_data = Some((p.clone(), entries));
+                    st.cfg.clone()
+                };
+                let name = p.name.clone();
+                let path = tokio::task::spawn_blocking(move || {
+                    export::default_path(
+                        &name,
+                        cfg.last_export_format,
+                        cfg.last_export_dir.as_deref(),
+                    )
+                })
+                .await
+                .unwrap_or_default();
+                self.sink.send(Event::ExportReady {
+                    id,
+                    tracks,
+                    skipped,
+                    default_path: path.display().to_string(),
+                });
+            }
+            Err(e) => {
+                let e = self.spotify_error(e).await;
+                self.sink.send(Event::ExportFailed(e));
+            }
+        }
+    }
+
+    async fn choose_export_path(&self, current: String, format: ExportFormat) {
+        let current = export::expand_tilde(&current);
+        let mut dlg = rfd::AsyncFileDialog::new().set_title("Export playlist");
+        if let Some(dir) = current.parent().filter(|d| d.is_dir()) {
+            dlg = dlg.set_directory(dir);
+        }
+        if let Some(name) = current.file_name() {
+            dlg = dlg.set_file_name(name.to_string_lossy());
+        }
+        dlg = match format {
+            ExportFormat::Csv => dlg.add_filter("CSV", &["csv"]),
+            ExportFormat::Json => dlg.add_filter("JSON", &["json"]),
+        };
+        if let Some(handle) = dlg.save_file().await {
+            let mut path = handle.path().to_path_buf();
+            if path.extension().is_none() {
+                path.set_extension(format.extension());
+            }
+            self.sink
+                .send(Event::ExportPathChosen(path.display().to_string()));
+        }
+    }
+
+    async fn write_export(&self, id: String, path: String, format: ExportFormat, overwrite: bool) {
+        let (data, me) = {
+            let st = self.st.lock().await;
+            (st.export_data.clone(), st.me.clone())
+        };
+        let (Some((playlist, entries)), Some(me)) = (data, me) else {
+            self.sink
+                .send(Event::ExportFailed(CoreError::SessionExpired));
+            return;
+        };
+        if playlist.id != id {
+            self.sink.send(Event::ExportFailed(CoreError::Io(
+                "the export dialog is out of date; close it and try again".into(),
+            )));
+            return;
+        }
+        let path = export::expand_tilde(path.trim());
+        let target = path.clone();
+        let res = blocking(move || {
+            export::export_playlist(&playlist, &entries, &me.id, format, &target, overwrite)
+        })
+        .await;
+        match res {
+            Ok(tracks) => {
+                self.st.lock().await.export_data = None;
+                self.sink.send(Event::Exported {
+                    path: path.clone(),
+                    tracks,
+                });
+                self.remember_export_prefs(format, path.parent().map(PathBuf::from))
+                    .await;
+            }
+            Err(CoreError::FileExists(_)) => self.sink.send(Event::ExportNeedsOverwrite),
+            Err(e) => self.sink.send(Event::ExportFailed(e)),
+        }
+    }
+
+    /// Save the last export format and folder (UI prefs only) to config.toml.
+    async fn remember_export_prefs(&self, format: ExportFormat, dir: Option<PathBuf>) {
+        let res = blocking(move || {
+            let path = config::config_path()
+                .ok_or_else(|| CoreError::Config("no config directory".into()))?;
+            let mut file = config::load_file(&path)?;
+            file.last_export_format = format;
+            if dir.is_some() {
+                file.last_export_dir = dir;
+            }
+            config::save_file(&path, &file)
+        })
+        .await;
+        if res.is_ok() {
+            let _ = self.load_config().await;
         }
     }
 }

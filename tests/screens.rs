@@ -24,6 +24,9 @@ fn fixtures() -> Vec<Fixture> {
         ("main", support::main),
         ("main_empty_filter", support::main_filtered_empty),
         ("detail", support::detail),
+        ("export", support::export_form),
+        ("export_overwrite", support::export_overwrite),
+        ("export_toast", support::export_done_toast),
     ]
 }
 

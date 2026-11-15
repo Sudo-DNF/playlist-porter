@@ -18,13 +18,13 @@ fn field(
     env: Option<&str>,
     password: bool,
 ) {
-    ui.label(RichText::new(label).strong());
+    let lbl = ui.label(RichText::new(label).strong());
     let edit = TextEdit::singleline(value)
         .hint_text(hint)
         .password(password)
         .font(egui::TextStyle::Monospace)
         .desired_width(f32::INFINITY);
-    ui.add_enabled(env.is_none(), edit);
+    ui.add_enabled(env.is_none(), edit).labelled_by(lbl.id);
     if let Some(var) = env {
         ui.label(
             RichText::new(format!("Set by the {var} environment variable."))

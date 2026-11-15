@@ -298,3 +298,42 @@ pub fn detail() -> UiState {
     });
     s
 }
+
+fn export_dialog(step: playlist_porter::gui::state::ExportStep) -> UiState {
+    use playlist_porter::core::spotify::models::SkipCounts;
+    use playlist_porter::gui::state::ExportDialog;
+    let mut s = signed_in(Screen::Playlists);
+    s.export = Some(ExportDialog {
+        playlist_id: "pl0000000000000000000A".into(),
+        playlist_name: "Coastal Drive".into(),
+        format: Default::default(),
+        path: "/home/alex/Documents/Coastal Drive.csv".into(),
+        step,
+        track_count: 140,
+        skipped: SkipCounts {
+            local: 1,
+            episode: 0,
+            unavailable: 1,
+        },
+        error: None,
+    });
+    s
+}
+
+pub fn export_form() -> UiState {
+    export_dialog(playlist_porter::gui::state::ExportStep::Form)
+}
+
+pub fn export_overwrite() -> UiState {
+    export_dialog(playlist_porter::gui::state::ExportStep::ConfirmOverwrite)
+}
+
+pub fn export_done_toast() -> UiState {
+    let mut s = signed_in(Screen::Playlists);
+    s.toast(
+        playlist_porter::gui::state::ToastKind::Success,
+        "Exported 140 tracks to Coastal Drive.csv",
+        Some("/home/alex/Documents".into()),
+    );
+    s
+}

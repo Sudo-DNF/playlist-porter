@@ -65,6 +65,9 @@ pub enum CoreError {
     #[error("File error: {0}")]
     Io(String),
 
+    #[error("{0} already exists.")]
+    FileExists(String),
+
     #[error(
         "Today's YouTube quota is used up. Progress is saved; resume after the daily reset \
          at midnight Pacific time."

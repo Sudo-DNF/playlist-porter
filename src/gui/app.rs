@@ -7,7 +7,7 @@ use egui::{Align, Layout, RichText, Ui};
 use tokio::runtime::Handle;
 
 use super::screens;
-use super::state::{Conn, Screen, Service, SignIn, ToastKind, UiError, UiState};
+use super::state::{Conn, ExportStep, Screen, Service, SignIn, ToastKind, UiError, UiState};
 use super::widgets::{self, muted, ok_color};
 use super::worker::{self, Command, Event, WorkerHandle};
 use crate::core::config::ThemePref;
@@ -186,6 +186,55 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
                 }
             }
         }
+        Event::ExportReady {
+            id,
+            tracks,
+            skipped,
+            default_path,
+        } => {
+            if let Some(d) = &mut s.export {
+                if d.playlist_id == id {
+                    d.track_count = tracks;
+                    d.skipped = skipped;
+                    d.path = default_path;
+                    d.format = s.config.last_export_format;
+                    d.step = ExportStep::Form;
+                }
+            }
+        }
+        Event::ExportPathChosen(path) => {
+            if let Some(d) = &mut s.export {
+                d.format =
+                    crate::core::config::ExportFormat::from_path(std::path::Path::new(&path));
+                d.path = path;
+            }
+        }
+        Event::ExportNeedsOverwrite => {
+            if let Some(d) = &mut s.export {
+                d.step = ExportStep::ConfirmOverwrite;
+            }
+        }
+        Event::Exported { path, tracks } => {
+            s.export = None;
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            s.toast(
+                ToastKind::Success,
+                format!("Exported {tracks} tracks to {name}"),
+                path.parent().map(std::path::Path::to_path_buf),
+            );
+        }
+        Event::ExportFailed(e) => match &mut s.export {
+            Some(d) => {
+                d.error = Some(e.into());
+                if d.step != ExportStep::Loading || d.track_count > 0 {
+                    d.step = ExportStep::Form;
+                }
+            }
+            None => s.error = Some(e.into()),
+        },
         Event::RateLimited(secs) => {
             s.rate_limited_until =
                 (secs > 0).then(|| Instant::now() + std::time::Duration::from_secs(secs));
