@@ -179,7 +179,7 @@ impl Worker {
         let res = async {
             let (client, me) = self.current_spotify().await?;
             // Re-fetch from Spotify (also on resume) and re-check ownership.
-            let (playlist, entries) = client.load_for_processing(&id, &me.id).await?;
+            let (playlist, entries) = client.load_for_processing(&id, &me).await?;
             let resume_state = if resume {
                 let pid = id.clone();
                 blocking(move || {

@@ -37,7 +37,11 @@ fn every_endpoint_is_on_an_allowed_host() {
 fn scopes_are_exactly_as_specified() {
     assert_eq!(
         spotify::SCOPES,
-        ["playlist-read-private", "playlist-read-collaborative"]
+        [
+            "playlist-read-private",
+            "playlist-read-collaborative",
+            "user-library-read"
+        ]
     );
     assert_eq!(google::SCOPE, "https://www.googleapis.com/auth/youtube");
 }

@@ -126,7 +126,7 @@ pub fn show(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
             let spotify = |ui: &mut Ui| {
                 card(ui, |ui| {
                     widgets::section_title(ui, "Spotify");
-                    ui.label("Reads only playlists you own or collaborate on. Spotify has no way for apps to revoke access, so remove it yourself after disconnecting.");
+                    ui.label("Reads only playlists you own or collaborate on, and your Liked Songs. Spotify has no way for apps to revoke access, so remove it yourself after disconnecting.");
                     bullet_link(ui, "Remove access at spotify.com/account/apps", SPOTIFY_APPS);
                     bullet_link(ui, "README: setup and limitations", README_SETUP_URL);
                     bullet_link(ui, "README", README_URL);

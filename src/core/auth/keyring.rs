@@ -111,6 +111,7 @@ mod tests {
             access_token: "SECRET-A".into(),
             refresh_token: Some("SECRET-R".into()),
             expires_at: 5,
+            scope: None,
         };
         let s = format!("{t:?}");
         assert!(!s.contains("SECRET"));

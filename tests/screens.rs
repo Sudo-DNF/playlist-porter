@@ -21,6 +21,7 @@ fn fixtures() -> Vec<Fixture> {
         ("signin", support::signin_idle),
         ("signin_waiting", support::signin_waiting),
         ("signin_error", support::signin_error),
+        ("signin_reauth", support::signin_reauth),
         ("main", support::main),
         ("main_empty_filter", support::main_filtered_empty),
         ("detail", support::detail),

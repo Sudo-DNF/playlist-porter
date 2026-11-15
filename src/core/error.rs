@@ -30,6 +30,12 @@ pub enum CoreError {
     #[error("Your session has expired and couldn't be renewed. Please sign in again.")]
     SessionExpired,
 
+    #[error(
+        "playlist-porter now also reads your Liked Songs, which needs one more \
+         permission. Connect Spotify again to grant it."
+    )]
+    ReauthNeeded,
+
     #[error("Sign-in failed: {0}")]
     Auth(String),
 
@@ -98,6 +104,9 @@ impl CoreError {
             ),
             CoreError::Network(_) => Some("Check your internet connection and try again."),
             CoreError::SessionExpired => Some("Sign in again from the sign-in screen."),
+            CoreError::ReauthNeeded => Some(
+                "Spotify will show the consent page again; approve it to continue. Nothing else changes.",
+            ),
             CoreError::NoKeyring(_) => {
                 Some("Start or unlock your keyring, then restart playlist-porter.")
             }

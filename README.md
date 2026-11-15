@@ -2,7 +2,8 @@
 
 A small desktop app (Rust + egui) that lets you:
 
-- **export your own playlists** (ones you own or collaborate on) to CSV or JSON, and
+- **export your own playlists** (ones you own or collaborate on) and your
+  **Liked Songs** to CSV or JSON, and
 - **recreate them as private YouTube playlists**, with a per-track match report.
 
 It moves playlist *metadata* only. It never downloads, streams or plays audio.
@@ -126,7 +127,12 @@ or `.env` (both are in `.gitignore`).
 Click **Connect Spotify**. Your system browser opens Spotify's consent page;
 the app waits on `127.0.0.1:<port>` for up to 5 minutes (with a Cancel button,
 and the address shown in case the browser didn't open). The app asks only for
-`playlist-read-private` and `playlist-read-collaborative`.
+`playlist-read-private`, `playlist-read-collaborative` and `user-library-read`
+(the last one only to read your Liked Songs).
+
+**Upgrading from a version without Liked Songs:** your saved sign-in doesn't
+include the Liked Songs permission, so the app asks you to **Connect Spotify**
+once more and approve the consent page again.
 
 ![Waiting for Spotify sign-in](docs/screenshots/signin_waiting_dark.png)
 
@@ -134,11 +140,13 @@ and the address shown in case the browser didn't open). The app asks only for
 
 ### Your playlists
 
-The main screen lists every playlist in your library. Ones you **own** or that
-are **collaborative** are *Exportable*; playlists you only follow are listed as
+The main screen lists your **Liked Songs** first, then every playlist in your
+library. Liked Songs and playlists you **own** or that are **collaborative**
+are *Exportable*; playlists you only follow are listed as
 *Not exportable* (hover for why) and their actions are disabled. Filter the
 loaded list, show only exportable playlists, or **Refresh** to re-fetch.
-Each row links to the playlist on Spotify.
+Each row links to the playlist on Spotify (Liked Songs links to your library
+page, and each of its tracks to the track).
 
 ![Playlists, light theme](docs/screenshots/main_light.png)
 
@@ -212,9 +220,13 @@ links.
 
 ## Limitations
 
-- **Your own playlists only.** Spotify lets apps move only playlists you own
+- **Your own data only.** The app moves your Liked Songs and playlists you own
   or collaborate on. Followed playlists appear in the list but can't be
-  exported or sent, and there's no way to process a playlist by URL.
+  exported or sent, and there's no way to process a playlist by URL. Other
+  library items (saved albums, podcasts, followed artists) aren't read.
+- **Large Liked Songs libraries** cost YouTube quota like any playlist (about
+  65 tracks a day), so a library of a few thousand songs takes weeks to send;
+  exporting it to CSV/JSON is instant.
 - **Spotify Development Mode**: at most **5 users**, added by hand in the
   dashboard, and the app owner needs an active **Premium** subscription.
 - **YouTube quota**: the default quota is 10,000 units a day, and each track

@@ -23,6 +23,10 @@ pub struct StoredToken {
     pub refresh_token: Option<String>,
     /// Unix seconds.
     pub expires_at: i64,
+    /// Space-separated scopes the token was granted. `None` for tokens saved
+    /// before this was recorded.
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 impl std::fmt::Debug for StoredToken {
@@ -62,7 +66,21 @@ impl StoredToken {
                 .map(|r| r.secret().clone())
                 .or(previous_refresh),
             expires_at: now_unix + expires_in,
+            scope: resp
+                .scopes()
+                .map(|s| s.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(" ")),
         }
+    }
+
+    /// Whether every one of `required` was granted.
+    pub fn has_scopes(&self, required: &[&str]) -> bool {
+        let granted: Vec<&str> = self
+            .scope
+            .as_deref()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect();
+        required.iter().all(|r| granted.contains(r))
     }
 }
 

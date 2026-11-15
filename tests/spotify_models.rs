@@ -179,3 +179,67 @@ fn forbidden_message_is_verbatim() {
     assert!(s.contains(&msg));
     assert!(err.wants_setup_link());
 }
+
+// --- Liked Songs ------------------------------------------------------------
+
+use playlist_porter::core::auth::StoredToken;
+use playlist_porter::core::spotify::client::forbidden_error;
+use playlist_porter::core::spotify::models::{LIKED_SONGS_ID, LIKED_SONGS_URL};
+
+#[test]
+fn saved_tracks_parse_as_entries() {
+    let page: Paging<PlaylistEntry> = serde_json::from_str(&fixture("saved_tracks.json")).unwrap();
+    assert_eq!(page.total, Some(3));
+    let e: Vec<Entry> = page.items.iter().map(Entry::from_api).collect();
+    assert_eq!(e[0].track().unwrap().title, "Saved One");
+    assert_eq!(
+        e[1].track().unwrap().spotify_url,
+        "https://open.spotify.com/track/savedTrack000000000002"
+    );
+    assert_eq!(e[2], Entry::Unavailable);
+}
+
+#[test]
+fn liked_songs_is_an_exportable_owned_playlist() {
+    let me: User = serde_json::from_str(&fixture("me.json")).unwrap();
+    let p = Playlist::liked_songs(&me, Some(3));
+    assert_eq!(p.id, LIKED_SONGS_ID);
+    assert!(p.is_liked_songs());
+    assert_eq!(p.total(), Some(3));
+    assert_eq!(p.spotify_url(), LIKED_SONGS_URL);
+    assert!(ensure_exportable(&p, &me.id).is_ok());
+    // Usable as a resume-file name and never a real 22-character playlist ID.
+    assert!(is_valid_id(LIKED_SONGS_ID));
+    assert_ne!(LIKED_SONGS_ID.len(), 22);
+}
+
+#[test]
+fn missing_scope_403_asks_to_reconnect() {
+    let msg = api_error_message(&fixture("error_403_scope.json"));
+    assert_eq!(forbidden_error(&msg), CoreError::ReauthNeeded);
+    let other = api_error_message(&fixture("error_403.json"));
+    assert!(matches!(
+        forbidden_error(&other),
+        CoreError::SpotifyForbidden { .. }
+    ));
+}
+
+#[test]
+fn old_tokens_without_library_scope_need_reauth() {
+    let scopes = playlist_porter::core::auth::spotify::SCOPES;
+    let mut t = StoredToken {
+        access_token: "a".into(),
+        refresh_token: None,
+        expires_at: 0,
+        scope: None,
+    };
+    assert!(!t.has_scopes(&scopes)); // saved before scopes were recorded
+    t.scope = Some("playlist-read-private playlist-read-collaborative".into());
+    assert!(!t.has_scopes(&scopes));
+    t.scope = Some("user-library-read playlist-read-collaborative playlist-read-private".into());
+    assert!(t.has_scopes(&scopes));
+    // Old keyring JSON (no `scope` key) still parses.
+    let old: StoredToken =
+        serde_json::from_str(r#"{"access_token":"a","refresh_token":"r","expires_at":1}"#).unwrap();
+    assert_eq!(old.scope, None);
+}

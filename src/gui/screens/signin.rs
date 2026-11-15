@@ -69,7 +69,7 @@ pub fn show(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(
-                        "playlist-porter reads the playlists you own or collaborate on. It asks only for permission to read your private and collaborative playlists.",
+                        "playlist-porter reads the playlists you own or collaborate on, and your Liked Songs. It asks only for permission to read your private and collaborative playlists and your saved tracks.",
                     )
                     .color(muted(ui)),
                 );

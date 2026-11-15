@@ -11,8 +11,13 @@ use crate::core::error::{CoreError, CoreResult};
 
 pub const AUTH_URL: &str = "https://accounts.spotify.com/authorize";
 pub const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
-/// Exactly these scopes; do not add any.
-pub const SCOPES: [&str; 2] = ["playlist-read-private", "playlist-read-collaborative"];
+/// Exactly these scopes; do not add any. `user-library-read` is only for
+/// reading Liked Songs (`GET /me/tracks`).
+pub const SCOPES: [&str; 3] = [
+    "playlist-read-private",
+    "playlist-read-collaborative",
+    "user-library-read",
+];
 
 /// Secrets held only in memory for the duration of one sign-in.
 pub struct PendingAuth {
@@ -112,7 +117,7 @@ mod tests {
         assert_eq!(q["redirect_uri"], "http://127.0.0.1:8888/callback");
         assert_eq!(
             q["scope"],
-            "playlist-read-private playlist-read-collaborative"
+            "playlist-read-private playlist-read-collaborative user-library-read"
         );
         assert_eq!(q["code_challenge_method"], "S256");
         assert!(q["code_challenge"].len() >= 43);

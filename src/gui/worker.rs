@@ -399,6 +399,16 @@ impl Worker {
                 return;
             }
         };
+        // Tokens from before Liked Songs support lack user-library-read:
+        // ask the user to connect again rather than failing later.
+        if !token.has_scopes(&spotify_auth::SCOPES) {
+            let _ = keyring::delete(Account::Spotify).await;
+            self.sink.send(Event::SignedOut(
+                Service::Spotify,
+                Some(CoreError::ReauthNeeded),
+            ));
+            return;
+        }
         let cfg = self.st.lock().await.cfg.clone();
         let client = self.spotify_client(&cfg, token);
         self.finish_spotify_sign_in(client, false).await;
@@ -424,11 +434,13 @@ impl Worker {
                 // A rejected or expired session is useless: remove it.
                 if matches!(
                     e,
-                    CoreError::SessionExpired | CoreError::SpotifyForbidden { .. }
+                    CoreError::SessionExpired
+                        | CoreError::ReauthNeeded
+                        | CoreError::SpotifyForbidden { .. }
                 ) {
                     let _ = keyring::delete(Account::Spotify).await;
                 }
-                if fresh || !matches!(e, CoreError::SessionExpired) {
+                if fresh || !matches!(e, CoreError::SessionExpired | CoreError::ReauthNeeded) {
                     self.sink.send(Event::SignInFailed(Service::Spotify, e));
                 } else {
                     self.sink.send(Event::SignedOut(Service::Spotify, Some(e)));
@@ -502,7 +514,7 @@ impl Worker {
 
     /// React to an error from a Spotify call; returns it for display.
     async fn spotify_error(&self, e: CoreError) -> CoreError {
-        if matches!(e, CoreError::SessionExpired) {
+        if matches!(e, CoreError::SessionExpired | CoreError::ReauthNeeded) {
             {
                 let mut st = self.st.lock().await;
                 st.spotify = None;
@@ -524,9 +536,19 @@ impl Worker {
             }
         };
         self.sink.send(Event::PlaylistsLoading);
-        match client.my_playlists().await {
-            Ok(list) => {
-                let rows = list.iter().map(|p| playlist_row(p, &me.id)).collect();
+        // Liked Songs first, then the user's playlists.
+        let res = async {
+            let liked = client.liked_songs(&me).await?;
+            let list = client.my_playlists().await?;
+            Ok::<_, CoreError>((liked, list))
+        }
+        .await;
+        match res {
+            Ok((liked, list)) => {
+                let rows = std::iter::once(&liked)
+                    .chain(list.iter())
+                    .map(|p| playlist_row(p, &me.id))
+                    .collect();
                 self.sink.send(Event::PlaylistsLoaded(rows));
             }
             Err(e) => {
@@ -539,7 +561,7 @@ impl Worker {
     async fn open_detail(&self, id: String) {
         let res = async {
             let (client, me) = self.current_spotify().await?;
-            let (p, entries) = client.load_for_processing(&id, &me.id).await?;
+            let (p, entries) = client.load_for_processing(&id, &me).await?;
             Ok::<_, CoreError>((playlist_row(&p, &me.id), entries))
         }
         .await;
@@ -555,7 +577,7 @@ impl Worker {
     async fn prepare_export(&self, id: String) {
         let res = async {
             let (client, me) = self.current_spotify().await?;
-            client.load_for_processing(&id, &me.id).await
+            client.load_for_processing(&id, &me).await
         }
         .await;
         match res {

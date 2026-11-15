@@ -68,7 +68,33 @@ pub struct Playlist {
     tracks_legacy: Option<ItemsSummary>,
 }
 
+/// Pseudo playlist ID for the user's Liked Songs (saved tracks). Real
+/// playlist IDs are 22 characters, so it can't collide.
+pub const LIKED_SONGS_ID: &str = "liked";
+pub const LIKED_SONGS_NAME: &str = "Liked Songs";
+/// Attribution link for Liked Songs: the user's library page.
+pub const LIKED_SONGS_URL: &str = "https://open.spotify.com/collection/tracks";
+
 impl Playlist {
+    /// The user's Liked Songs, presented as a playlist they own.
+    pub fn liked_songs(me: &User, total: Option<u32>) -> Playlist {
+        Playlist {
+            id: LIKED_SONGS_ID.into(),
+            name: LIKED_SONGS_NAME.into(),
+            owner: me.clone(),
+            collaborative: false,
+            external_urls: ExternalUrls {
+                spotify: Some(LIKED_SONGS_URL.into()),
+            },
+            items: Some(ItemsSummary { total }),
+            tracks_legacy: None,
+        }
+    }
+
+    pub fn is_liked_songs(&self) -> bool {
+        self.id == LIKED_SONGS_ID
+    }
+
     /// Item summary, preferring the new `items` field.
     pub fn items(&self) -> Option<&ItemsSummary> {
         self.items.as_ref().or(self.tracks_legacy.as_ref())

@@ -11,7 +11,9 @@ use std::time::Duration;
 
 use serde::de::DeserializeOwned;
 
-use super::models::{api_error_message, Entry, Paging, Playlist, PlaylistEntry, User};
+use super::models::{
+    api_error_message, Entry, Paging, Playlist, PlaylistEntry, User, LIKED_SONGS_ID,
+};
 use crate::core::auth::session::Session;
 use crate::core::error::{CoreError, CoreResult};
 
@@ -70,6 +72,18 @@ pub fn parse_429(retry_after: Option<&str>, body: &str) -> RateLimit {
 /// growing exponentially.
 pub fn backoff_secs(retry_after: u64, attempt: u32) -> u64 {
     retry_after.max(1u64 << attempt.min(6))
+}
+
+/// A 403 caused by a token without a needed scope (e.g. one saved before
+/// `user-library-read` was added) means "sign in again", not "not allowed".
+pub fn forbidden_error(spotify_message: &str) -> CoreError {
+    if spotify_message.to_lowercase().contains("scope") {
+        CoreError::ReauthNeeded
+    } else {
+        CoreError::SpotifyForbidden {
+            spotify_message: spotify_message.to_string(),
+        }
+    }
 }
 
 /// `next` URLs must stay on the API host so the bearer token never goes
@@ -148,9 +162,7 @@ impl SpotifyClient {
                 401 => return Err(CoreError::SessionExpired),
                 403 => {
                     let body = resp.text().await.unwrap_or_default();
-                    return Err(CoreError::SpotifyForbidden {
-                        spotify_message: api_error_message(&body),
-                    });
+                    return Err(forbidden_error(&api_error_message(&body)));
                 }
                 429 => {
                     let ra = resp
@@ -224,13 +236,37 @@ impl SpotifyClient {
         Ok(raw.iter().map(Entry::from_api).collect())
     }
 
-    /// Fetch a playlist for export/transfer, re-checking ownership so the UI
-    /// can't bypass it.
+    /// Liked Songs as a playlist row: one `GET /me/tracks?limit=1` for the total.
+    pub async fn liked_songs(&self, me: &User) -> CoreResult<Playlist> {
+        let page = self
+            .get_json::<Paging<PlaylistEntry>>(&format!("{API_BASE}/me/tracks?limit=1"))
+            .await?;
+        Ok(Playlist::liked_songs(me, page.total))
+    }
+
+    /// All Liked Songs (`GET /me/tracks`). Entries are `{added_at, track}`,
+    /// the playlist-entry shape with the old field name.
+    pub async fn liked_entries(&self) -> CoreResult<Vec<Entry>> {
+        let raw = collect_pages(format!("{API_BASE}/me/tracks?limit=50"), |u| async move {
+            self.get_json::<Paging<PlaylistEntry>>(&u).await
+        })
+        .await?;
+        Ok(raw.iter().map(Entry::from_api).collect())
+    }
+
+    /// Fetch a playlist (or Liked Songs) for detail/export/transfer,
+    /// re-checking ownership so the UI can't bypass it.
     pub async fn load_for_processing(
         &self,
         id: &str,
-        me_id: &str,
+        me: &User,
     ) -> CoreResult<(Playlist, Vec<Entry>)> {
+        if id == LIKED_SONGS_ID {
+            let entries = self.liked_entries().await?;
+            let p = Playlist::liked_songs(me, Some(entries.len() as u32));
+            return Ok((p, entries));
+        }
+        let me_id = me.id.as_str();
         let p = self.playlist(id).await?;
         ensure_exportable(&p, me_id)?;
         let entries = self.playlist_entries(id).await?;

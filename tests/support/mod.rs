@@ -48,6 +48,16 @@ fn row(
 
 pub fn playlists() -> Vec<PlaylistRow> {
     vec![
+        PlaylistRow {
+            id: "liked".into(),
+            name: "Liked Songs".into(),
+            owner_name: "Alex E.".into(),
+            owner_is_me: true,
+            collaborative: false,
+            total: Some(1_204),
+            spotify_url: "https://open.spotify.com/collection/tracks".into(),
+            exportable: true,
+        },
         row(
             "pl0000000000000000000A",
             "Coastal Drive",
@@ -292,7 +302,7 @@ pub fn main_filtered_empty() -> UiState {
 pub fn detail() -> UiState {
     let mut s = signed_in(Screen::Detail);
     s.detail = Some(DetailState {
-        row: playlists()[0].clone(),
+        row: playlists()[1].clone(),
         entries: Some(entries()),
         error: None,
     });
@@ -619,4 +629,12 @@ pub fn settings_after_signout() -> UiState {
 
 pub fn about() -> UiState {
     signed_in(Screen::About)
+}
+
+pub fn signin_reauth() -> UiState {
+    let mut s = signin_idle();
+    s.signin_error = Some(UiError::from(
+        playlist_porter::core::error::CoreError::ReauthNeeded,
+    ));
+    s
 }

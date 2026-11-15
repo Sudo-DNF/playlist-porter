@@ -28,8 +28,11 @@ compliance-related; they change.
 - Auth: **Authorization Code with PKCE** in the user's **system browser**
   (never an embedded web view). No client secret. Redirect URI must be a
   loopback IP literal: `http://127.0.0.1:<port>/callback`. Never `localhost`.
-- Scopes: exactly `playlist-read-private playlist-read-collaborative`. Do not
-  add scopes.
+- Scopes: exactly `playlist-read-private playlist-read-collaborative
+  user-library-read`. Do not add others. `user-library-read` exists only for
+  Liked Songs (below); nothing else in the library (albums, shows, follows) is
+  read. Tokens granted before this scope was added must be re-authorized: the
+  app sends the user back to Connect Spotify with an explanation.
 
 ### Which playlists may be processed (Policy III.9)
 - Only playlists the signed-in user **owns** (`owner.id == me.id`) or that are
@@ -40,6 +43,13 @@ compliance-related; they change.
   exportable**. Their Export and YouTube actions are disabled, with a tooltip
   explaining why. Core functions also re-check ownership and return an error,
   so the UI can't bypass it.
+- **Liked Songs** (the user's saved tracks, added 2026-11 at the owner's
+  request) may be processed like an owned playlist: it is the user's own
+  personal data, which III.9 also allows moving to another service. It appears
+  as the first row of the playlist list, is always exportable, and is read
+  only via `GET /v1/me/tracks`. Its attribution URL is the user's library page
+  `https://open.spotify.com/collection/tracks`; each track still links to its
+  own Spotify URL.
 - No way to process a playlist by arbitrary URL/ID: no "paste any playlist
   URL" box. Users pick only from their own loaded playlist list.
 
@@ -163,6 +173,9 @@ Many tutorials, crates and LLM memories are outdated. Trust these:
   - `GET /v1/playlists/{id}`: metadata, owner, collaborative,
     `external_urls`
   - `GET /v1/playlists/{id}/items?limit=50`: paginate with `next`
+  - `GET /v1/me/tracks?limit=50`: Liked Songs (scope `user-library-read`),
+    paginate with `next`. Entries are `{added_at, track}` (same shape as a
+    playlist entry with the old field name).
 - **Renamed fields**: in playlist objects `tracks` → `items`. In paging
   objects the playlist-item entries hold the track under `item` (formerly
   `track`). The API may currently send **both** old and new names. Deserialize
@@ -413,7 +426,7 @@ can be unit-tested. Never put them in UI code.
 
 ## Git workflow
 
-- Remote: `origin` → https://github.com/Sudo-DNF/playlist-porter (private)
+- Remote: `origin` → https://github.com/Sudo-DNF/playlist-porter (public)
 - Default branch: `main`
 - **After every commit, always push to the remote immediately:**
 

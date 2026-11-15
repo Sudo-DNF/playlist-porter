@@ -71,7 +71,7 @@ pub fn show(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
     });
     ui.add_space(4.0);
     ui.label(
-        RichText::new("ℹ Playlists you follow are listed but can't be exported. Spotify only allows moving playlists you own or collaborate on.")
+        RichText::new("ℹ Liked Songs and playlists you own or collaborate on can be exported. Playlists you only follow are listed but can't be: Spotify doesn't allow moving them.")
             .color(muted(ui)),
     );
     ui.add_space(8.0);

@@ -72,7 +72,13 @@ impl Session {
             return Err(CoreError::SessionExpired);
         };
         let new = match (self.refresher)(rt).await {
-            Ok(t) => t,
+            // A refresh response may omit `scope`; the grant is unchanged.
+            Ok(mut t) => {
+                if t.scope.is_none() {
+                    t.scope = current.scope.clone();
+                }
+                t
+            }
             // Network trouble isn't an expired session; surface it as is.
             Err(e @ CoreError::Network(_)) => return Err(e),
             Err(_) => return Err(CoreError::SessionExpired),
@@ -95,6 +101,7 @@ mod tests {
             access_token: a.into(),
             refresh_token: Some("r".into()),
             expires_at: exp,
+            scope: None,
         }
     }
 
