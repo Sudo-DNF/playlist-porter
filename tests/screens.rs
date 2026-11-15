@@ -35,6 +35,9 @@ fn fixtures() -> Vec<Fixture> {
         ("transfer_cancelled", support::transfer_cancelled),
         ("transfer_done", support::transfer_done),
         ("transfers_empty", support::transfers_empty),
+        ("settings", support::settings),
+        ("settings_signed_out", support::settings_after_signout),
+        ("about", support::about),
     ]
 }
 

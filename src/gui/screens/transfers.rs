@@ -666,10 +666,10 @@ pub fn confirm_modal(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
         });
         ui.add_space(6.0);
         let key_w = 120.0;
-        widgets::kv_row(ui, key_w, "Playlist name", |ui| {
+        widgets::kv_row(ui, key_w, "Playlist name", |ui, _label| {
             ui.label(&t.playlist_name);
         });
-        widgets::kv_row(ui, key_w, "Tracks", |ui| {
+        widgets::kv_row(ui, key_w, "Tracks", |ui, _label| {
             let mut text = if c.resuming {
                 format!("{} remaining of {}", c.tracks, c.total_tracks)
             } else {
@@ -680,7 +680,7 @@ pub fn confirm_modal(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
             }
             ui.label(text);
         });
-        widgets::kv_row(ui, key_w, "Estimated quota", |ui| {
+        widgets::kv_row(ui, key_w, "Estimated quota", |ui, _label| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(format!("≈ {} units", thousands(c.units))).strong());
                 let detail = if c.resuming {
@@ -691,7 +691,7 @@ pub fn confirm_modal(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
                 ui.label(RichText::new(detail).color(muted(ui)));
             });
         });
-        widgets::kv_row(ui, key_w, "Time needed", |ui| {
+        widgets::kv_row(ui, key_w, "Time needed", |ui, _label| {
             let left_today = DAILY_LIMIT.saturating_sub(s.quota_used);
             if c.days <= 1 {
                 ui.label(format!(
@@ -708,7 +708,7 @@ pub fn confirm_modal(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
             }
         });
         if !c.resuming {
-            widgets::kv_row(ui, key_w, "Description", |ui| {
+            widgets::kv_row(ui, key_w, "Description", |ui, _label| {
                 ui.label(RichText::new(playlist_description(&t.playlist_url)).monospace());
             });
         }

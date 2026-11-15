@@ -238,14 +238,17 @@ pub fn error_panel(ui: &mut Ui, err: &UiError) -> bool {
     dismissed
 }
 
-/// Two-column key/value row used in cards and the confirmation modal.
-pub fn kv_row(ui: &mut Ui, key_w: f32, key: &str, add: impl FnOnce(&mut Ui)) {
+/// Two-column key/value row used in cards and the confirmation modal. The
+/// closure gets the key label's id so inputs can be `labelled_by` it.
+pub fn kv_row(ui: &mut Ui, key_w: f32, key: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
     ui.horizontal_top(|ui| {
-        ui.add_sized(
-            [key_w, 20.0],
-            egui::Label::new(RichText::new(key).color(muted(ui))).halign(Align::Min),
-        );
-        ui.vertical(|ui| add(ui));
+        let label = ui
+            .allocate_ui_with_layout(Vec2::new(key_w, 20.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(key_w);
+                ui.label(RichText::new(key).color(muted(ui)))
+            })
+            .inner;
+        ui.vertical(|ui| add(ui, label.id));
     });
 }
 
@@ -334,4 +337,22 @@ pub fn table_style(ui: &mut Ui) {
     );
     st.spacing.button_padding = egui::vec2(7.0, 3.0);
     st.spacing.item_spacing.x = 6.0;
+}
+
+/// A fixed-width, left-aligned, wrapping text cell (for grids).
+pub fn text_cell(ui: &mut Ui, width: f32, text: impl Into<egui::WidgetText>) {
+    ui.allocate_ui_with_layout(Vec2::new(width, 0.0), Layout::top_down(Align::Min), |ui| {
+        ui.set_width(width);
+        ui.add(egui::Label::new(text).wrap());
+    });
+}
+
+/// Show a path with the home directory abbreviated to `~`.
+pub fn tilde(path: &std::path::Path) -> String {
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(rest) = path.strip_prefix(&home) {
+            return format!("~/{}", rest.display());
+        }
+    }
+    path.display().to_string()
 }

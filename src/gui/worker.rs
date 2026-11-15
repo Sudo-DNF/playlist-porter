@@ -12,7 +12,7 @@ use tokio::runtime::Handle;
 use tokio::sync::{mpsc as tmpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
-use super::state::{PlaylistRow, Service};
+use super::state::{DisconnectReport, PlaylistRow, Service};
 use crate::core::auth::keyring::{self, Account};
 use crate::core::auth::session::Session;
 use crate::core::auth::{loopback, spotify as spotify_auth, StoredToken};
@@ -27,7 +27,10 @@ use crate::core::youtube::report::ReportRow;
 use crate::core::youtube::resume::ResumeState;
 use crate::core::youtube::transfer::{Outcome, Progress};
 
+mod account;
 mod yt;
+
+pub use account::Disconnect;
 
 /// Requests from the UI.
 #[derive(Debug)]
@@ -76,6 +79,8 @@ pub enum Command {
         youtube_playlist_id: Option<String>,
         rows: Vec<ReportRow>,
     },
+    /// Disconnect Spotify, YouTube, or sign out of everything.
+    Disconnect(Disconnect),
 }
 
 /// Results and progress from the worker.
@@ -143,6 +148,7 @@ pub enum Event {
         reset_local: String,
     },
     ReportSaved(PathBuf),
+    Disconnected(Disconnect, DisconnectReport),
     /// Spotify asked us to wait; 0 means the wait is over.
     RateLimited(u64),
     Error(CoreError),
@@ -300,6 +306,7 @@ impl Worker {
             }
             Command::CloseTransfer => self.st.lock().await.transfer_data = None,
             Command::DiscardResume(id) => self.discard_resume(id).await,
+            Command::Disconnect(which) => self.disconnect(which).await,
             Command::SaveReport {
                 playlist_name,
                 playlist_url,

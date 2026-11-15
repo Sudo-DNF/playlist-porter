@@ -45,7 +45,7 @@ pub fn show(ui: &mut Ui, s: &mut UiState, out: &mut Vec<Command>) {
                 ui.hyperlink_to("README setup steps", README_SETUP_URL);
                 ui.label("), then paste the IDs here. These are app credentials, not your account sign-ins. They're saved to ");
                 let path = config::config_path()
-                    .map(|p| p.display().to_string())
+                    .map(|p| widgets::tilde(&p))
                     .unwrap_or_else(|| "~/.config/playlist-porter/config.toml".into());
                 ui.label(RichText::new(path).monospace());
                 ui.label(".");

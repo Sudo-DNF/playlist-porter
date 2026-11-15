@@ -577,3 +577,46 @@ pub fn transfers_empty() -> UiState {
     );
     s
 }
+
+// --- Settings / About ---------------------------------------------------------
+
+pub fn settings() -> UiState {
+    let mut s = yt_connected(Screen::Settings);
+    s.resumable.insert(
+        "pl0000000000000000000B".into(),
+        ResumeInfo { next_index: 31 },
+    );
+    s
+}
+
+pub fn settings_after_signout() -> UiState {
+    use playlist_porter::gui::state::DisconnectReport;
+    let mut s = UiState {
+        screen: Screen::Settings,
+        config: base_config(),
+        file_config: base_config(),
+        spotify: Conn::Disconnected,
+        youtube: Conn::Disconnected,
+        settings_port: "8888".into(),
+        ..Default::default()
+    };
+    s.disconnect_report = Some(DisconnectReport {
+        title: "Signed out of everything".into(),
+        done: vec![
+            "Revoked playlist-porter's access to your Google account.".into(),
+            "Deleted the Google sign-in token from your OS keyring (playlist-porter / google)."
+                .into(),
+            "Deleted the Spotify sign-in token from your OS keyring (playlist-porter / spotify)."
+                .into(),
+            "Deleted 1 paused-transfer file and any temporary files.".into(),
+            "Cleared all loaded playlists, tracks and transfer data from memory.".into(),
+        ],
+        problems: vec![],
+        spotify_disconnected: true,
+    });
+    s
+}
+
+pub fn about() -> UiState {
+    signed_in(Screen::About)
+}

@@ -12,7 +12,7 @@ use super::state::{
 };
 use super::transfer_state::{ConfirmInfo, TransferPhase};
 use super::widgets::{self, muted, ok_color};
-use super::worker::{self, Command, Event, WorkerHandle};
+use super::worker::{self, Command, Disconnect, Event, WorkerHandle};
 use crate::core::config::ThemePref;
 use crate::core::error::CoreError;
 use crate::core::youtube::quota;
@@ -366,6 +366,21 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
                 path.parent().map(std::path::Path::to_path_buf),
             );
         }
+        Event::Disconnected(which, report) => {
+            s.disconnecting = false;
+            s.disconnect_report = Some(report);
+            s.resumable.clear();
+            s.transfer = None;
+            if which != Disconnect::Spotify {
+                s.youtube = Conn::Disconnected;
+                s.google_signin = SignIn::Idle;
+            }
+            if which != Disconnect::YouTube {
+                s.spotify = Conn::Disconnected;
+                s.spotify_signin = SignIn::Idle;
+                s.clear_spotify_data();
+            }
+        }
         Event::RateLimited(secs) => {
             s.rate_limited_until =
                 (secs > 0).then(|| Instant::now() + std::time::Duration::from_secs(secs));
@@ -430,7 +445,8 @@ fn top_bar(ui: &mut Ui, s: &mut UiState) {
         ui.add_space(20.0);
         let signed_in = s.spotify.is_connected();
         // Settings stays reachable right after a disconnect so its report shows.
-        if signed_in || s.screen == Screen::Settings {
+        let show_nav = signed_in || s.screen == Screen::Settings;
+        if show_nav {
             let nav = [
                 (Screen::Playlists, "Playlists"),
                 (Screen::Transfers, "Transfers"),
@@ -453,7 +469,7 @@ fn top_bar(ui: &mut Ui, s: &mut UiState) {
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if signed_in {
+            if show_nav {
                 // Full "Spotify: name" when there's room, otherwise just the
                 // service names (with the account in a tooltip).
                 let compact = ui.available_width() < 420.0;
