@@ -337,3 +337,243 @@ pub fn export_done_toast() -> UiState {
     );
     s
 }
+
+// --- YouTube transfer -------------------------------------------------------
+
+use playlist_porter::core::matching::MatchStatus;
+use playlist_porter::core::youtube::report::ReportRow;
+use playlist_porter::gui::transfer_state::{ConfirmInfo, TransferPhase, TransferView};
+
+fn transfer_view(phase: TransferPhase) -> TransferView {
+    TransferView::new(
+        "pl0000000000000000000B",
+        "Focus Blocks",
+        "https://open.spotify.com/playlist/pl0000000000000000000B",
+        false,
+        phase,
+    )
+}
+
+fn yt_connected(screen: Screen) -> UiState {
+    let mut s = signed_in(screen);
+    s.youtube = Conn::Connected {
+        name: "Alex E.".into(),
+        id: String::new(),
+    };
+    s.quota_reset_local = "3:00 AM".into();
+    s
+}
+
+pub fn yt_notice() -> UiState {
+    let mut s = signed_in(Screen::Transfers);
+    s.transfer = Some(transfer_view(TransferPhase::Notice));
+    s
+}
+
+pub fn yt_signing_in() -> UiState {
+    let mut s = signed_in(Screen::Transfers);
+    s.transfer = Some(transfer_view(TransferPhase::SigningIn));
+    s.google_signin = SignIn::Waiting {
+        auth_url: "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=000000000000-example.apps.googleusercontent.com&state=EXAMPLE&code_challenge=EXAMPLE&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A8888%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube&access_type=offline&prompt=consent".into(),
+        port: 8888,
+        deadline: Instant::now() + Duration::from_secs(290),
+    };
+    s
+}
+
+pub fn yt_confirm() -> UiState {
+    let mut s = yt_connected(Screen::Playlists);
+    let mut t = transfer_view(TransferPhase::Confirm);
+    t.confirm = Some(ConfirmInfo {
+        tracks: 87,
+        total_tracks: 87,
+        skipped: Default::default(),
+        units: 13_100,
+        days: 2,
+        reset_local: "3:00 AM".into(),
+        resuming: false,
+    });
+    s.transfer = Some(t);
+    s
+}
+
+fn rrow(
+    n: usize,
+    title: &str,
+    artist: &str,
+    status: MatchStatus,
+    video: Option<(&str, &str)>,
+    diff: Option<i64>,
+    note: Option<&str>,
+) -> ReportRow {
+    ReportRow {
+        position: n,
+        title: title.into(),
+        artists: artist.into(),
+        spotify_url: format!("https://open.spotify.com/track/tr{n:020}"),
+        status,
+        video_id: video.map(|_| format!("vid{n:08}")),
+        video_title: video.map(|v| v.0.to_string()),
+        channel: video.map(|v| v.1.to_string()),
+        duration_diff_secs: diff,
+        note: note.map(Into::into),
+    }
+}
+
+fn report_rows() -> Vec<ReportRow> {
+    use MatchStatus::*;
+    vec![
+        rrow(
+            20,
+            "Opening",
+            "Neon Atlas",
+            Matched,
+            Some(("Opening", "Neon Atlas - Topic")),
+            Some(0),
+            None,
+        ),
+        rrow(
+            21,
+            "Tidal",
+            "Coral Static",
+            Matched,
+            Some(("Coral Static - Tidal", "CoralStaticVEVO")),
+            Some(1),
+            None,
+        ),
+        rrow(
+            22,
+            "Night Call",
+            "Paper Lanterns",
+            Matched,
+            Some(("Night Call", "Paper Lanterns - Topic")),
+            Some(0),
+            None,
+        ),
+        rrow(
+            23,
+            "Long Ending (Ascent) - Remastered 2005",
+            "Ambient Person",
+            Uncertain,
+            Some((
+                "Ambient Person - Long Ending (Ascent) [1 Hour]",
+                "Ambient Archive",
+            )),
+            Some(3334),
+            Some("Duration far off"),
+        ),
+        rrow(
+            24,
+            "Window Light",
+            "Fen & Field",
+            Matched,
+            Some(("Fen & Field - Window Light", "Example Records")),
+            Some(-2),
+            None,
+        ),
+        rrow(
+            25,
+            "Morning Bells",
+            "Northbound",
+            Uncertain,
+            Some(("northbound morning bells hq", "uploader77")),
+            Some(3),
+            Some("Low title similarity"),
+        ),
+        rrow(
+            26,
+            "Gentle",
+            "The Weekenders",
+            Matched,
+            Some((
+                "The Weekenders - Gentle (Official Video)",
+                "TheWeekendersVEVO",
+            )),
+            Some(4),
+            None,
+        ),
+        rrow(
+            27,
+            "Midnight Session (feat. Kim Example)",
+            "Nightdesk",
+            NotFound,
+            None,
+            None,
+            Some("No usable result"),
+        ),
+        rrow(
+            28,
+            "Strobe Light",
+            "J. Example",
+            Uncertain,
+            Some(("J. Example - Strobe Light (Radio Edit)", "J. Example")),
+            Some(-372),
+            Some("Duration far off"),
+        ),
+        rrow(
+            29,
+            "Spectrum",
+            "Of Owls and Men",
+            Matched,
+            Some(("Spectrum", "Of Owls and Men - Topic")),
+            Some(0),
+            None,
+        ),
+        rrow(
+            30,
+            "Porcelain Sky",
+            "The Example Band",
+            Matched,
+            Some((
+                "The Example Band - Porcelain Sky (Official Video)",
+                "The Example Band",
+            )),
+            Some(3),
+            None,
+        ),
+    ]
+}
+
+fn transfer_with(phase: TransferPhase, done: usize) -> UiState {
+    let mut s = yt_connected(Screen::Transfers);
+    let mut t = transfer_view(phase);
+    t.total = 87;
+    t.done = done;
+    t.current = Some("#32 Holloway, Fen & Field".into());
+    t.rows = report_rows();
+    t.youtube_playlist_id = Some("PLexample0000000000000000000000000".into());
+    s.transfer = Some(t);
+    s.quota_used = 4_700;
+    s
+}
+
+pub fn transfer_running() -> UiState {
+    transfer_with(TransferPhase::Running, 31)
+}
+
+pub fn transfer_quota() -> UiState {
+    let mut s = transfer_with(TransferPhase::QuotaExhausted, 65);
+    s.quota_used = 10_000;
+    s
+}
+
+pub fn transfer_cancelled() -> UiState {
+    transfer_with(TransferPhase::Cancelled, 31)
+}
+
+pub fn transfer_done() -> UiState {
+    let mut s = transfer_with(TransferPhase::Done, 87);
+    if let Some(t) = &mut s.transfer {
+        t.filter = Some(MatchStatus::Uncertain);
+    }
+    s
+}
+
+pub fn transfers_empty() -> UiState {
+    let mut s = yt_connected(Screen::Transfers);
+    s.resumable.insert(
+        "pl0000000000000000000B".into(),
+        ResumeInfo { next_index: 31 },
+    );
+    s
+}

@@ -262,6 +262,11 @@ pub struct UiState {
     pub disconnect_report: Option<DisconnectReport>,
     pub disconnecting: bool,
 
+    /// Estimated YouTube quota units used today (this process).
+    pub quota_used: u32,
+    /// Next quota reset in local time, e.g. "3:00 AM".
+    pub quota_reset_local: String,
+
     pub rate_limited_until: Option<Instant>,
     pub toasts: Vec<Toast>,
     /// General error panel (top of the current screen).

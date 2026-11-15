@@ -21,6 +21,13 @@ use crate::core::error::{CoreError, CoreResult};
 use crate::core::export;
 use crate::core::spotify::client::{is_exportable, SpotifyClient};
 use crate::core::spotify::models::{Entry, Playlist, SkipCounts, User};
+use crate::core::youtube::client::YouTubeClient;
+use crate::core::youtube::quota::QuotaTracker;
+use crate::core::youtube::report::ReportRow;
+use crate::core::youtube::resume::ResumeState;
+use crate::core::youtube::transfer::{Outcome, Progress};
+
+mod yt;
 
 /// Requests from the UI.
 #[derive(Debug)]
@@ -49,6 +56,26 @@ pub enum Command {
     },
     /// Export dialog closed: drop the fetched tracks.
     CloseExport,
+    /// Fetch a playlist for the YouTube confirmation modal.
+    PrepareTransfer {
+        id: String,
+        resume: bool,
+    },
+    /// Start (or resume) the prepared transfer.
+    StartTransfer,
+    /// Stop after the current API call and save resume state.
+    CancelTransfer,
+    /// Confirmation dismissed: drop the fetched tracks.
+    CloseTransfer,
+    /// "Start over": delete saved resume state for a playlist.
+    DiscardResume(String),
+    /// Native save dialog, then write the match report.
+    SaveReport {
+        playlist_name: String,
+        playlist_url: String,
+        youtube_playlist_id: Option<String>,
+        rows: Vec<ReportRow>,
+    },
 }
 
 /// Results and progress from the worker.
@@ -96,6 +123,26 @@ pub enum Event {
         tracks: usize,
     },
     ExportFailed(CoreError),
+    /// Playlists with saved resume state: (Spotify playlist ID, next index).
+    ResumeList(Vec<(String, usize)>),
+    TransferReady {
+        id: String,
+        /// Tracks still to process.
+        tracks: usize,
+        total_tracks: usize,
+        skipped: SkipCounts,
+        resuming: bool,
+        quota_used: u32,
+        reset_local: String,
+    },
+    TransferProgress(Progress),
+    TransferEnded(Outcome),
+    TransferFailedToStart(CoreError),
+    QuotaStatus {
+        used: u32,
+        reset_local: String,
+    },
+    ReportSaved(PathBuf),
     /// Spotify asked us to wait; 0 means the wait is over.
     RateLimited(u64),
     Error(CoreError),
@@ -137,6 +184,16 @@ struct WorkerState {
     google_signin: Option<CancellationToken>,
     /// Tracks fetched for the open export dialog. Dropped when it closes.
     export_data: Option<(Playlist, Vec<Entry>)>,
+    youtube: Option<Arc<YouTubeClient>>,
+    /// Playlist + tracks fetched for the YouTube confirmation, in memory only.
+    transfer_data: Option<TransferPrep>,
+    transfer_cancel: Option<CancellationToken>,
+}
+
+struct TransferPrep {
+    playlist: Playlist,
+    tracks: Vec<crate::core::spotify::models::TrackInfo>,
+    resume: Option<ResumeState>,
 }
 
 #[derive(Clone)]
@@ -144,6 +201,8 @@ struct Worker {
     sink: Sink,
     http: reqwest::Client,
     st: Arc<Mutex<WorkerState>>,
+    /// YouTube quota estimate for today, shared across transfers.
+    quota: Arc<std::sync::Mutex<QuotaTracker>>,
 }
 
 /// One HTTP client for all API calls. Redirects are off so a request can
@@ -165,6 +224,7 @@ pub fn spawn(rt: &Handle, ctx: egui::Context) -> WorkerHandle {
         sink: Sink { tx: ev_tx, ctx },
         http: api_http_client(),
         st: Arc::new(Mutex::new(WorkerState::default())),
+        quota: Arc::new(std::sync::Mutex::new(QuotaTracker::new(chrono::Utc::now()))),
     };
     rt.spawn(async move {
         while let Some(cmd) = cmd_rx.recv().await {
@@ -207,7 +267,7 @@ impl Worker {
             Command::Startup => self.startup().await,
             Command::SaveConfig(cfg) => self.save_config(*cfg).await,
             Command::SignIn(Service::Spotify) => self.spotify_sign_in().await,
-            Command::SignIn(Service::YouTube) => {}
+            Command::SignIn(Service::YouTube) => self.google_sign_in().await,
             Command::CancelSignIn(s) => {
                 let mut st = self.st.lock().await;
                 let tok = match s {
@@ -231,6 +291,24 @@ impl Worker {
                 overwrite,
             } => self.write_export(id, path, format, overwrite).await,
             Command::CloseExport => self.st.lock().await.export_data = None,
+            Command::PrepareTransfer { id, resume } => self.prepare_transfer(id, resume).await,
+            Command::StartTransfer => self.start_transfer().await,
+            Command::CancelTransfer => {
+                if let Some(t) = &self.st.lock().await.transfer_cancel {
+                    t.cancel();
+                }
+            }
+            Command::CloseTransfer => self.st.lock().await.transfer_data = None,
+            Command::DiscardResume(id) => self.discard_resume(id).await,
+            Command::SaveReport {
+                playlist_name,
+                playlist_url,
+                youtube_playlist_id,
+                rows,
+            } => {
+                self.save_report(playlist_name, playlist_url, youtube_playlist_id, rows)
+                    .await
+            }
             Command::OpenFolder(path) => {
                 let _ = blocking(move || {
                     open::that_detached(&path).map_err(|e| CoreError::Io(e.to_string()))
@@ -259,9 +337,11 @@ impl Worker {
                 return;
             }
         };
+        self.list_resumes().await;
         if !cfg.has_spotify() {
             return;
         }
+        self.restore_google().await;
         self.restore_spotify().await;
     }
 

@@ -27,6 +27,14 @@ fn fixtures() -> Vec<Fixture> {
         ("export", support::export_form),
         ("export_overwrite", support::export_overwrite),
         ("export_toast", support::export_done_toast),
+        ("yt_notice", support::yt_notice),
+        ("yt_signing_in", support::yt_signing_in),
+        ("yt_confirm", support::yt_confirm),
+        ("transfer_running", support::transfer_running),
+        ("transfer_quota", support::transfer_quota),
+        ("transfer_cancelled", support::transfer_cancelled),
+        ("transfer_done", support::transfer_done),
+        ("transfers_empty", support::transfers_empty),
     ]
 }
 

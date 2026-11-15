@@ -7,11 +7,16 @@ use egui::{Align, Layout, RichText, Ui};
 use tokio::runtime::Handle;
 
 use super::screens;
-use super::state::{Conn, ExportStep, Screen, Service, SignIn, ToastKind, UiError, UiState};
+use super::state::{
+    Conn, ExportStep, ResumeInfo, Screen, Service, SignIn, ToastKind, UiError, UiState,
+};
+use super::transfer_state::{ConfirmInfo, TransferPhase};
 use super::widgets::{self, muted, ok_color};
 use super::worker::{self, Command, Event, WorkerHandle};
 use crate::core::config::ThemePref;
 use crate::core::error::CoreError;
+use crate::core::youtube::quota;
+use crate::core::youtube::transfer::{Outcome, Progress};
 
 pub const ATTRIBUTION: &str = "Playlist and track data supplied by Spotify.";
 
@@ -103,6 +108,11 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
         Event::SignedOut(Service::YouTube, err) => {
             s.youtube = Conn::Disconnected;
             s.google_signin = SignIn::Idle;
+            if let Some(t) = &mut s.transfer {
+                if t.phase == TransferPhase::SigningIn {
+                    t.phase = TransferPhase::Notice;
+                }
+            }
             if let Some(e) = err {
                 s.error = Some(e.into());
             }
@@ -138,6 +148,16 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
             Service::YouTube => {
                 s.youtube = Conn::Connected { name, id };
                 s.google_signin = SignIn::Idle;
+                // Step 2 → step 3 of a pending transfer.
+                if let Some(t) = &mut s.transfer {
+                    if t.phase == TransferPhase::SigningIn {
+                        t.phase = TransferPhase::Preparing;
+                        out.push(Command::PrepareTransfer {
+                            id: t.playlist_id.clone(),
+                            resume: t.resume,
+                        });
+                    }
+                }
             }
         },
         Event::SignInFailed(service, e) => {
@@ -152,6 +172,11 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
                 }
                 Service::YouTube => {
                     s.google_signin = SignIn::Idle;
+                    if let Some(t) = &mut s.transfer {
+                        if t.phase == TransferPhase::SigningIn {
+                            t.phase = TransferPhase::Notice;
+                        }
+                    }
                     if let Some(err) = err {
                         s.error = Some(err);
                     }
@@ -235,13 +260,118 @@ pub fn apply_event(s: &mut UiState, ev: Event, out: &mut Vec<Command>) {
             }
             None => s.error = Some(e.into()),
         },
+        Event::ResumeList(list) => {
+            s.resumable = list
+                .into_iter()
+                .map(|(id, next_index)| (id, ResumeInfo { next_index }))
+                .collect();
+        }
+        Event::TransferReady {
+            id,
+            tracks,
+            total_tracks,
+            skipped,
+            resuming,
+            quota_used,
+            reset_local,
+        } => {
+            s.quota_used = quota_used;
+            s.quota_reset_local = reset_local.clone();
+            if let Some(t) = &mut s.transfer {
+                if t.playlist_id == id && t.phase == TransferPhase::Preparing {
+                    let units = quota::estimate_units(tracks, !resuming);
+                    t.confirm = Some(ConfirmInfo {
+                        tracks,
+                        total_tracks,
+                        skipped,
+                        units,
+                        days: quota::days_needed(units, quota_used),
+                        reset_local,
+                        resuming,
+                    });
+                    t.total = total_tracks;
+                    t.done = total_tracks - tracks;
+                    t.phase = TransferPhase::Confirm;
+                }
+            }
+        }
+        Event::TransferProgress(p) => {
+            if let Progress::QuotaUsed(u) = p {
+                s.quota_used = u;
+            } else if let Some(t) = &mut s.transfer {
+                match p {
+                    Progress::PlaylistReady(id) => t.youtube_playlist_id = Some(id),
+                    Progress::Current {
+                        index,
+                        total,
+                        label,
+                    } => {
+                        t.total = total;
+                        t.done = index;
+                        t.current = Some(format!("#{} {label}", index + 1));
+                    }
+                    Progress::Row(r) => {
+                        t.done = t.done.max(r.position);
+                        t.rows.retain(|x| x.position != r.position);
+                        t.rows.push(r);
+                    }
+                    Progress::QuotaUsed(_) => {}
+                }
+            }
+        }
+        Event::TransferEnded(outcome) => {
+            if let Some(t) = &mut s.transfer {
+                t.current = None;
+                t.cancel_requested = false;
+                let (phase, yt) = match outcome {
+                    Outcome::Done {
+                        youtube_playlist_id,
+                    } => {
+                        t.done = t.total;
+                        (TransferPhase::Done, Some(youtube_playlist_id))
+                    }
+                    Outcome::QuotaExhausted {
+                        youtube_playlist_id,
+                    } => (TransferPhase::QuotaExhausted, youtube_playlist_id),
+                    Outcome::Cancelled {
+                        youtube_playlist_id,
+                    } => (TransferPhase::Cancelled, youtube_playlist_id),
+                    Outcome::Failed {
+                        error,
+                        youtube_playlist_id,
+                    } => (TransferPhase::Failed(error.into()), youtube_playlist_id),
+                };
+                t.phase = phase;
+                if yt.is_some() {
+                    t.youtube_playlist_id = yt;
+                }
+            }
+        }
+        Event::TransferFailedToStart(e) => match &mut s.transfer {
+            Some(t) => t.phase = TransferPhase::Failed(e.into()),
+            None => s.error = Some(e.into()),
+        },
+        Event::QuotaStatus { used, reset_local } => {
+            s.quota_used = used;
+            s.quota_reset_local = reset_local;
+        }
+        Event::ReportSaved(path) => {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            s.toast(
+                ToastKind::Success,
+                format!("Saved report to {name}"),
+                path.parent().map(std::path::Path::to_path_buf),
+            );
+        }
         Event::RateLimited(secs) => {
             s.rate_limited_until =
                 (secs > 0).then(|| Instant::now() + std::time::Duration::from_secs(secs));
         }
         Event::Error(e) => s.toast(ToastKind::Error, e.to_string(), None),
     }
-    let _ = out;
 }
 
 /// Draw the whole window. Pure UI over `UiState`; also used by the

@@ -6,3 +6,4 @@ pub mod error;
 pub mod export;
 pub mod matching;
 pub mod spotify;
+pub mod youtube;
